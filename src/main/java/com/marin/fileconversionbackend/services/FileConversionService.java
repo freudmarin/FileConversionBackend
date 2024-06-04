@@ -1,6 +1,7 @@
 package com.marin.fileconversionbackend.services;
 
 import com.itextpdf.text.Document;
+import com.itextpdf.text.Image;
 import com.itextpdf.text.Paragraph;
 import com.itextpdf.text.pdf.PdfWriter;
 import com.marin.fileconversionbackend.models.ConversionResult;
@@ -100,19 +101,28 @@ public class FileConversionService {
     }
 
     @Async
-    public CompletableFuture<ConversionResult> convertPdfToImage(File inputFile) {
+    public CompletableFuture<ConversionResult> convertPdfToImages(File inputFile) {
         String fileName = inputFile.getName();
         String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
-        String outputFileName = baseName + ".png";
-        Path outputPath = Paths.get(outputFileName);
+        Path outputDirPath = Paths.get(System.getProperty("java.io.tmpdir"), baseName + "_images");
+
+        // Create the output directory if it doesn't exist
+        if (!outputDirPath.toFile().exists()) {
+            outputDirPath.toFile().mkdirs();
+        }
 
         try (PDDocument document = PDDocument.load(inputFile)) {
             PDFRenderer pdfRenderer = new PDFRenderer(document);
-            BufferedImage bim = pdfRenderer.renderImageWithDPI(0, 300, ImageType.RGB);
+            int numberOfPages = document.getNumberOfPages();
 
-            ImageIOUtil.writeImage(bim, outputFileName, 300);
+            for (int page = 0; page < numberOfPages; page++) {
+                String outputFileName = baseName + "_page_" + (page + 1) + ".png";
+                Path outputPath = outputDirPath.resolve(outputFileName);
+                BufferedImage bim = pdfRenderer.renderImageWithDPI(page, 300, ImageType.RGB);
+                ImageIOUtil.writeImage(bim, outputPath.toString(), 300);
+            }
 
-            ConversionResult result = new ConversionResult("File converted successfully", outputPath.toString());
+            ConversionResult result = new ConversionResult("File converted successfully", outputDirPath.toString());
             return CompletableFuture.completedFuture(result);
 
         } catch (IOException e) {
@@ -121,5 +131,62 @@ public class FileConversionService {
         }
     }
 
-    // Add other conversion methods as needed
+    @Async
+    public CompletableFuture<ConversionResult> convertTextToPdf(File inputFile) {
+        String fileName = inputFile.getName();
+        String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
+        String outputFileName = baseName + ".pdf";
+        Path outputPath = Paths.get(outputFileName);
+
+        try (InputStream textInputStream = new FileInputStream(inputFile);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(textInputStream));
+             OutputStream pdfOutputStream = new FileOutputStream(outputPath.toFile())) {
+
+            Document pdfDocument = new Document();
+            PdfWriter.getInstance(pdfDocument, pdfOutputStream);
+            pdfDocument.open();
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                pdfDocument.add(new Paragraph(line));
+            }
+            pdfDocument.close();
+
+            ConversionResult result = new ConversionResult("File converted successfully", outputPath.toString());
+            return CompletableFuture.completedFuture(result);
+
+        } catch (Exception e) {
+            ConversionResult result = new ConversionResult("Failed to convert file: " + e.getMessage(), null);
+            return CompletableFuture.completedFuture(result);
+        }
+    }
+
+    @Async
+    public CompletableFuture<ConversionResult> convertImageToPdf(File inputFile) {
+        String fileName = inputFile.getName();
+        String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
+        String outputFileName = baseName + ".pdf";
+        Path outputPath = Paths.get(outputFileName);
+
+        try (InputStream imageInputStream = new FileInputStream(inputFile);
+             OutputStream pdfOutputStream = new FileOutputStream(outputPath.toFile())) {
+
+            Document pdfDocument = new Document();
+            PdfWriter.getInstance(pdfDocument, pdfOutputStream);
+            pdfDocument.open();
+
+            Image img = Image.getInstance(imageInputStream.readAllBytes());
+            pdfDocument.add(img);
+            pdfDocument.close();
+
+            ConversionResult result = new ConversionResult("File converted successfully", outputPath.toString());
+            return CompletableFuture.completedFuture(result);
+
+        } catch (Exception e) {
+            ConversionResult result = new ConversionResult("Failed to convert file: " + e.getMessage(), null);
+            return CompletableFuture.completedFuture(result);
+        }
+
+        // Add other conversion methods as needed
+    }
 }
